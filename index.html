@@ -21,8 +21,7 @@
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div id="appLoader" class="hidden">
-        <div class="loader" style="width: 50px; height: 50px; border-top-color: #3b82f6;"></div>
+    <div id="appLoader" class="hidden"> <div class="loader" style="width: 50px; height: 50px; border-top-color: #3b82f6;"></div>
     </div>
 
     <section id="firebaseAuthSection" class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md mb-6">
@@ -147,12 +146,7 @@
         }
     </script>
     <script>
-        // --- Configuración de la App Facebook ---
-        const API_VERSION = 'v12.0'; 
-        const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
-        const POST_FETCH_LIMIT = 50; 
-
-        // --- Elementos DOM (App Principal) ---
+        // --- Elementos DOM (Primero para asegurar disponibilidad) ---
         const accessTokenInput = document.getElementById('accessToken');
         const fetchPagesBtn = document.getElementById('fetchPagesBtn');
         const pagesLoader = document.getElementById('pagesLoader');
@@ -170,8 +164,6 @@
         const deletePostsBtn = document.getElementById('deletePostsBtn');
         const deleteLoader = document.getElementById('deleteLoader');
         const logContent = document.getElementById('logContent');
-        
-        // --- Elementos DOM (Firebase Auth) ---
         const firebaseAuthSection = document.getElementById('firebaseAuthSection');
         const mainAppContent = document.getElementById('mainAppContent');
         const loginForm = document.getElementById('loginForm');
@@ -184,6 +176,26 @@
         const logoutBtn = document.getElementById('logoutBtn');
         const appLoader = document.getElementById('appLoader');
 
+        // --- Funciones Utilitarias (Definidas Temprano) ---
+        function logMessage(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString('es-ES'); 
+            const p = document.createElement('p');
+            p.innerHTML = `[${timestamp}] ${message}`;
+            if (type === 'error') p.classList.add('text-red-400');
+            if (type === 'success') p.classList.add('text-green-400');
+            if (type === 'warning') p.classList.add('text-yellow-400');
+            if (logContent) { // Verificar que logContent exista
+                logContent.appendChild(p);
+                logContent.scrollTop = logContent.scrollHeight; 
+            } else {
+                console.warn("logContent no encontrado, mensaje del log:", message);
+            }
+        }
+
+        // --- Configuración de la App Facebook ---
+        const API_VERSION = 'v12.0'; 
+        const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
+        const POST_FETCH_LIMIT = 50; 
 
         // --- Estado Global ---
         let userAccessToken = ''; // Token de Facebook
@@ -192,8 +204,14 @@
         let postsToDelete = [];
         let localDeviceSessionId = localStorage.getItem('deviceSessionId');
         if (!localDeviceSessionId) {
-            localDeviceSessionId = crypto.randomUUID();
-            localStorage.setItem('deviceSessionId', localDeviceSessionId);
+            try {
+                localDeviceSessionId = crypto.randomUUID();
+                localStorage.setItem('deviceSessionId', localDeviceSessionId);
+            } catch (e) {
+                console.warn("crypto.randomUUID no disponible, usando fallback simple (menos seguro para deviceId):", e);
+                localDeviceSessionId = 'fallback-' + Date.now() + '-' + Math.random().toString(36).substring(2);
+                localStorage.setItem('deviceSessionId', localDeviceSessionId);
+            }
         }
 
         // --- Funciones de Firebase Auth ---
@@ -225,7 +243,92 @@
                 logMessage(`Error al registrar actividad: ${error.message}`, 'error');
             }
         }
+        
+        function showMainAppUI(user) {
+            firebaseAuthSection.classList.remove('max-w-md');
+            firebaseAuthSection.classList.add('max-w-2xl'); 
+            loginForm.classList.add('hidden');
+            userInfo.classList.remove('hidden');
+            userEmailSpan.textContent = user.email;
+            mainAppContent.classList.remove('hidden');
+            // logContent.innerHTML = ''; // No limpiar para ver el historial
+            logMessage(`¡Bienvenido ${user.email}! Sesión activa en este dispositivo. Ingresa tu token de FB.`, 'success');
+        }
 
+        function showLoginFormUI() {
+            firebaseAuthSection.classList.add('max-w-md');
+            firebaseAuthSection.classList.remove('max-w-2xl');
+            loginForm.classList.remove('hidden');
+            userInfo.classList.add('hidden');
+            mainAppContent.classList.add('hidden');
+            logContent.innerHTML = '';
+            logMessage('Por favor, inicia sesión para usar la aplicación.', 'info');
+            if(emailInput) emailInput.value = ''; // Verificar que existan antes de asignar
+            if(passwordInput) passwordInput.value = '';
+            if(loginError) loginError.textContent = '';
+            if(accessTokenInput) accessTokenInput.value = ''; 
+            if(pageSelectionSection) pageSelectionSection.classList.add('hidden');
+            if(pageInfoSection) pageInfoSection.classList.add('hidden');
+            if(postDeletionSection) postDeletionSection.classList.add('hidden');
+            if(pagesSelect) pagesSelect.innerHTML = '<option value="">-- Selecciona una Página --</option>';
+            if(pageCountSpan) pageCountSpan.textContent = '0';
+        }
+
+        // Listener de estado de autenticación
+        auth.onAuthStateChanged(async (user) => {
+            appLoader.classList.remove('hidden'); 
+            try {
+                localDeviceSessionId = localStorage.getItem('deviceSessionId');
+                if (!localDeviceSessionId) {
+                    try {
+                        localDeviceSessionId = crypto.randomUUID();
+                    } catch(e) {
+                         localDeviceSessionId = 'fallback-' + Date.now() + '-' + Math.random().toString(36).substring(2);
+                    }
+                    localStorage.setItem('deviceSessionId', localDeviceSessionId);
+                }
+
+                if (user) {
+                    const userSessionRef = db.collection('active_sessions').doc(user.uid);
+                    const doc = await userSessionRef.get();
+                    
+                    if (doc.exists) {
+                        const firestoreSessionId = doc.data().activeDeviceSessionId;
+                        if (firestoreSessionId !== localDeviceSessionId) {
+                            logMessage("Sesión cerrada: se inició sesión en otro dispositivo.", 'warning');
+                            await auth.signOut(); 
+                            return; 
+                        } else {
+                            showMainAppUI(user);
+                            await recordLoginActivity(user);
+                        }
+                    } else {
+                        logMessage('Estableciendo nueva sesión activa para este dispositivo en Firestore.', 'info');
+                        await userSessionRef.set({
+                            activeDeviceSessionId: localDeviceSessionId,
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        showMainAppUI(user);
+                        await recordLoginActivity(user);
+                    }
+                } else {
+                    showLoginFormUI();
+                }
+            } catch (error) {
+                console.error("Error en onAuthStateChanged o verificación de sesión:", error);
+                logMessage(`Error crítico de sesión: ${error.message}. Se intentará cerrar la sesión.`, 'error');
+                try {
+                    await auth.signOut(); 
+                } catch (signOutError) {
+                    console.error("Error al intentar cerrar sesión después de error crítico:", signOutError);
+                }
+                showLoginFormUI(); 
+            } finally {
+                appLoader.classList.add('hidden'); 
+            }
+        });
+
+        // Event Listeners para Login/Logout
         loginBtn.addEventListener('click', async () => {
             const email = emailInput.value;
             const password = passwordInput.value;
@@ -258,75 +361,8 @@
             }
         });
         
-        function showMainAppUI(user) {
-            firebaseAuthSection.classList.remove('max-w-md');
-            firebaseAuthSection.classList.add('max-w-2xl');
-            loginForm.classList.add('hidden');
-            userInfo.classList.remove('hidden');
-            userEmailSpan.textContent = user.email;
-            mainAppContent.classList.remove('hidden');
-            logContent.innerHTML = ''; 
-            logMessage(`¡Bienvenido ${user.email}! Sesión activa en este dispositivo. Ingresa tu token de FB.`, 'success');
-        }
 
-        function showLoginFormUI() {
-            firebaseAuthSection.classList.add('max-w-md');
-            firebaseAuthSection.classList.remove('max-w-2xl');
-            loginForm.classList.remove('hidden');
-            userInfo.classList.add('hidden');
-            mainAppContent.classList.add('hidden');
-            logContent.innerHTML = '';
-            logMessage('Por favor, inicia sesión para usar la aplicación.', 'info');
-            emailInput.value = '';
-            passwordInput.value = '';
-            loginError.textContent = '';
-            accessTokenInput.value = ''; 
-            pageSelectionSection.classList.add('hidden');
-            pageInfoSection.classList.add('hidden');
-            postDeletionSection.classList.add('hidden');
-            pagesSelect.innerHTML = '<option value="">-- Selecciona una Página --</option>';
-            pageCountSpan.textContent = '0';
-        }
-
-        auth.onAuthStateChanged(async (user) => {
-            appLoader.classList.remove('hidden');
-            if (user) {
-                const userSessionRef = db.collection('active_sessions').doc(user.uid);
-                try {
-                    const doc = await userSessionRef.get();
-                    if (doc.exists) {
-                        const firestoreSessionId = doc.data().activeDeviceSessionId;
-                        if (firestoreSessionId !== localDeviceSessionId) {
-                            logMessage("Sesión cerrada: se inició sesión en otro dispositivo.", 'warning');
-                            await auth.signOut(); 
-                        } else {
-                            showMainAppUI(user);
-                            await recordLoginActivity(user);
-                        }
-                    } else {
-                        logMessage('Estableciendo nueva sesión activa para este dispositivo en Firestore.', 'info');
-                        await userSessionRef.set({
-                            activeDeviceSessionId: localDeviceSessionId,
-                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        showMainAppUI(user);
-                        await recordLoginActivity(user);
-                    }
-                } catch (error) {
-                    console.error("Error al verificar la sesión del dispositivo:", error);
-                    logMessage(`Error al verificar sesión: ${error.message}. Se cerrará la sesión por precaución.`, 'error');
-                    await auth.signOut(); 
-                }
-            } else {
-                showLoginFormUI();
-            }
-            appLoader.classList.add('hidden');
-        });
-
-
-        // --- Funciones Utilitarias (App Principal) ---
-        // logMessage ya está definida arriba
-
+        // --- Funciones Utilitarias (App Facebook) ---
         async function makeApiCall(endpoint, params = {}, method = 'GET', body = null, tokenToUse = null) {
             if (!tokenToUse) {
                  logMessage('Falta el token de acceso de Facebook para la llamada API.', 'error');
@@ -368,7 +404,6 @@
         }
 
         // --- Funciones Principales (App Facebook) ---
-
         async function getUserPages() {
             userAccessToken = accessTokenInput.value.trim(); 
             if (!userAccessToken) {
@@ -704,9 +739,7 @@
         fetchPostsToDeleteBtn.addEventListener('click', getPostsToPotentiallyDelete);
         deletePostsBtn.addEventListener('click', deleteSelectedPosts);
 
-        // Inicializar la app mostrando el loader hasta que Firebase Auth se resuelva
-        appLoader.classList.remove('hidden'); 
-
+        // La inicialización y el manejo del loader principal se hacen en onAuthStateChanged
     </script>
 </body>
 </html>
