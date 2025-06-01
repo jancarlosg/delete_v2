@@ -21,7 +21,8 @@
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div id="appLoader" class="hidden"> <div class="loader" style="width: 50px; height: 50px; border-top-color: #3b82f6;"></div>
+    <div id="appLoader" class="hidden"> 
+        <div class="loader" style="width: 50px; height: 50px; border-top-color: #3b82f6;"></div>
     </div>
 
     <section id="firebaseAuthSection" class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md mb-6">
@@ -146,6 +147,7 @@
         }
     </script>
     <script>
+    document.addEventListener('DOMContentLoaded', function() {
         // --- Elementos DOM (Primero para asegurar disponibilidad) ---
         const accessTokenInput = document.getElementById('accessToken');
         const fetchPagesBtn = document.getElementById('fetchPagesBtn');
@@ -184,7 +186,7 @@
             if (type === 'error') p.classList.add('text-red-400');
             if (type === 'success') p.classList.add('text-green-400');
             if (type === 'warning') p.classList.add('text-yellow-400');
-            if (logContent) { // Verificar que logContent exista
+            if (logContent) { 
                 logContent.appendChild(p);
                 logContent.scrollTop = logContent.scrollHeight; 
             } else {
@@ -198,9 +200,9 @@
         const POST_FETCH_LIMIT = 50; 
 
         // --- Estado Global ---
-        let userAccessToken = ''; // Token de Facebook
+        let userAccessToken = ''; 
         let selectedPageId = '';
-        let selectedPageAccessToken = ''; // Token de Página de Facebook
+        let selectedPageAccessToken = ''; 
         let postsToDelete = [];
         let localDeviceSessionId = localStorage.getItem('deviceSessionId');
         if (!localDeviceSessionId) {
@@ -251,7 +253,6 @@
             userInfo.classList.remove('hidden');
             userEmailSpan.textContent = user.email;
             mainAppContent.classList.remove('hidden');
-            // logContent.innerHTML = ''; // No limpiar para ver el historial
             logMessage(`¡Bienvenido ${user.email}! Sesión activa en este dispositivo. Ingresa tu token de FB.`, 'success');
         }
 
@@ -261,9 +262,11 @@
             loginForm.classList.remove('hidden');
             userInfo.classList.add('hidden');
             mainAppContent.classList.add('hidden');
-            logContent.innerHTML = '';
+            if (logContent) { // Asegurarse que logContent existe antes de limpiarlo
+                 logContent.innerHTML = '';
+            }
             logMessage('Por favor, inicia sesión para usar la aplicación.', 'info');
-            if(emailInput) emailInput.value = ''; // Verificar que existan antes de asignar
+            if(emailInput) emailInput.value = ''; 
             if(passwordInput) passwordInput.value = '';
             if(loginError) loginError.textContent = '';
             if(accessTokenInput) accessTokenInput.value = ''; 
@@ -739,7 +742,7 @@
         fetchPostsToDeleteBtn.addEventListener('click', getPostsToPotentiallyDelete);
         deletePostsBtn.addEventListener('click', deleteSelectedPosts);
 
-        // La inicialización y el manejo del loader principal se hacen en onAuthStateChanged
+    }); // Cierre del DOMContentLoaded
     </script>
 </body>
 </html>
